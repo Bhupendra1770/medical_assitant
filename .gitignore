@@ -1,0 +1,9 @@
+﻿venv/
+node_modules/
+my-audio-app/node_modules/
+__pycache__/
+*.pyc
+.env
+tts_outputs/
+received_audio/
+my-audio-app/dist/

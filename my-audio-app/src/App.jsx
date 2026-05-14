@@ -5,9 +5,9 @@ const WS_URL = import.meta.env.VITE_WS_URL || "ws://localhost:8000";
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8080";
 const API_KEY = import.meta.env.VITE_API_KEY || "dev-key";
 
-const VAD_THRESHOLD = 30;      // higher = less sensitive to background noise
+const VAD_THRESHOLD = 35;      // higher = less sensitive to background noise
 const SILENCE_MS    = 2500;    // wait 2.5s of silence before sending
-const MIN_RECORD_MS = 800;     // ignore clips shorter than this
+const MIN_RECORD_MS = 1200;     // ignore clips shorter than this
 
 function timeStr() {
   return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -239,7 +239,7 @@ export default function App() {
       setTimeout(function() {
         cooldownRef.current = false;
         setVad(micOnRef.current ? "listening" : "idle");
-      }, 2000);
+      }, 3000);
     };
 
     audio.play().catch(function() {
@@ -329,7 +329,7 @@ export default function App() {
           return;
         }
 
-        if (st === "listening" || st === "playing") {
+        if (st === "listening") {
           startRec(stream);
         }
       } else {

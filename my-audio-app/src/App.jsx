@@ -5,9 +5,9 @@ const WS_URL = import.meta.env.VITE_WS_URL || "ws://localhost:8000";
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8080";
 const API_KEY = import.meta.env.VITE_API_KEY || "dev-key";
 
-const VAD_THRESHOLD = 18;
-const SILENCE_MS    = 2500;
-const MIN_RECORD_MS = 800;
+const VAD_THRESHOLD = 30;      // higher = less sensitive to background noise
+const SILENCE_MS    = 2500;    // wait 2.5s of silence before sending
+const MIN_RECORD_MS = 800;     // ignore clips shorter than this
 
 function timeStr() {
   return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -164,7 +164,7 @@ export default function App() {
   const reqIdRef     = useRef(0);
   const vadRef       = useRef("idle");
   const micOnRef     = useRef(false);
-  const cooldownRef  = useRef(false);   // blocks VAD briefly after playback ends
+  const cooldownRef  = useRef(false);
   const messagesEnd  = useRef(null);
 
   const setVad = function(s) { vadRef.current = s; setVadState(s); };
@@ -234,12 +234,12 @@ export default function App() {
 
     audio.onended = function() {
       audioRef.current = null;
-      // cooldown after playback so room echo doesn't trigger VAD
+      // 2 second cooldown — prevents mic picking up speaker echo
       cooldownRef.current = true;
       setTimeout(function() {
         cooldownRef.current = false;
         setVad(micOnRef.current ? "listening" : "idle");
-      }, 800);
+      }, 2000);
     };
 
     audio.play().catch(function() {
@@ -255,7 +255,6 @@ export default function App() {
     recStartRef.current = Date.now();
     chunksRef.current   = [];
 
-    // interrupt playback immediately
     stopAudio();
     cooldownRef.current = false;
 
@@ -300,18 +299,18 @@ export default function App() {
     reader.readAsDataURL(blob);
   }
 
-  // ── VAD loop — mic always live, no gain node ──────────────────────────────
+  // ── VAD loop ──────────────────────────────────────────────────────────────
   const startVAD = useCallback(function(stream) {
     const ctx      = new AudioContext();
     const src      = ctx.createMediaStreamSource(stream);
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 1024;
-    src.connect(analyser);   // direct connection — always listening
+    src.connect(analyser);
 
     const data = new Uint8Array(analyser.fftSize);
 
     function tick() {
-      if (!streamRef.current) return;   // mic turned off
+      if (!streamRef.current) return;
       analyser.getByteTimeDomainData(data);
 
       var talking = false;
@@ -324,18 +323,16 @@ export default function App() {
       if (talking) {
         if (silTimerRef.current) { clearTimeout(silTimerRef.current); silTimerRef.current = null; }
 
-        // skip if in post-playback cooldown (room echo settling)
+        // skip if in post-playback cooldown (prevents echo loop)
         if (cooldownRef.current) {
           requestAnimationFrame(tick);
           return;
         }
 
-        // start recording if listening OR interrupt if playing
         if (st === "listening" || st === "playing") {
           startRec(stream);
         }
       } else {
-        // silence — stop recording after SILENCE_MS
         if (st === "recording" && !silTimerRef.current) {
           silTimerRef.current = setTimeout(function() {
             silTimerRef.current = null;
@@ -382,7 +379,7 @@ export default function App() {
     setVad("processing");
   };
 
-  // ── UI labels ─────────────────────────────────────────────────────────────
+  // ── UI ────────────────────────────────────────────────────────────────────
   const statusColor = { connected: "#22c55e", connecting: "#f59e0b", disconnected: "#ef4444", error: "#ef4444" };
   const stateLabel  = {
     idle:       "Click mic to start",
@@ -419,7 +416,6 @@ export default function App() {
         <div className="chat-col">
           <div className="msgs">
             {messages.map(function(m) { return <Bubble key={m.id} msg={m} />; })}
-
             {vadState === "processing" && (
               <div className="row row-bot">
                 <div className="avatar av-bot">⚕️</div>

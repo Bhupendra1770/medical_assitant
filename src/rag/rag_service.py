@@ -1,6 +1,7 @@
 """
 Medical RAG Service using pgvector on Neon PostgreSQL
 Handles document ingestion and semantic search for medical knowledge
+Auto-reconnects if connection drops (Neon closes idle connections)
 """
 
 import os
@@ -42,9 +43,28 @@ class RAGService:
             logger.error(f"❌ PostgreSQL connection failed: {e}")
             return False
 
+    def ensure_connection(self):
+        """Reconnect if connection was dropped (Neon closes idle connections)"""
+        try:
+            if self.conn is None or self.conn.closed:
+                logger.warning("Connection lost, reconnecting...")
+                self.connect()
+                return
+            # Test connection is alive
+            with self.conn.cursor() as cur:
+                cur.execute("SELECT 1")
+        except Exception:
+            logger.warning("Connection test failed, reconnecting...")
+            try:
+                self.conn.close()
+            except Exception:
+                pass
+            self.connect()
+
     def init_db(self) -> bool:
         """Create pgvector extension and medical_documents table"""
         try:
+            self.ensure_connection()
             with self.conn.cursor() as cur:
                 # Enable pgvector
                 cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
@@ -102,6 +122,7 @@ class RAGService:
         Ingest a document into the vector store.
         Chunks long documents into ~500-word pieces.
         """
+        self.ensure_connection()
         if not self.conn or not self.model:
             return False
 
@@ -132,6 +153,7 @@ class RAGService:
 
     def search(self, query: str, k: int = 4) -> List[Dict[str, Any]]:
         """Semantic similarity search in the medical knowledge base"""
+        self.ensure_connection()
         if not self.conn or not self.model:
             return []
 
@@ -155,7 +177,7 @@ class RAGService:
                 return [
                     {"title": r[0], "content": r[1], "metadata": r[2], "similarity": float(r[3])}
                     for r in rows
-                    if float(r[3]) > 0.25  # minimum relevance threshold
+                    if float(r[3]) > 0.25
                 ]
         except Exception as e:
             logger.error(f"❌ Search failed: {e}")
@@ -170,13 +192,14 @@ class RAGService:
         context_parts = []
         for i, r in enumerate(results, 1):
             title = r.get("title", "Medical Reference")
-            content = r["content"][:600]  # limit each chunk
+            content = r["content"][:600]
             context_parts.append(f"[Reference {i} - {title}]:\n{content}")
 
         return "\n\n".join(context_parts)
 
     def get_document_count(self) -> int:
         """Return total number of stored documents"""
+        self.ensure_connection()
         if not self.conn:
             return 0
         try:
@@ -188,6 +211,7 @@ class RAGService:
 
     def delete_document(self, doc_id: int) -> bool:
         """Delete a document by ID"""
+        self.ensure_connection()
         if not self.conn:
             return False
         try:
@@ -200,6 +224,7 @@ class RAGService:
 
     def list_documents(self) -> List[Dict]:
         """List all documents (without embeddings)"""
+        self.ensure_connection()
         if not self.conn:
             return []
         try:
@@ -224,7 +249,7 @@ class RAGService:
         """Split text into word-based chunks with overlap"""
         words = text.split()
         chunks = []
-        overlap = 50  # word overlap between chunks
+        overlap = 50
 
         for i in range(0, len(words), chunk_size - overlap):
             chunk = " ".join(words[i: i + chunk_size])
@@ -234,7 +259,7 @@ class RAGService:
         return chunks if chunks else [text]
 
 
-# ── Global singleton ────────────────────────────────────────────────────────
+# ── Global singleton ──────────────────────────────────────────────────────────
 
 _rag_service: Optional[RAGService] = None
 

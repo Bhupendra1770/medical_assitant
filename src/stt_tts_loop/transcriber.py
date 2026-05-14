@@ -2,10 +2,11 @@
 
 from groq import Groq
 import os
+from dotenv import load_dotenv
 
-# TO THIS
-import os
-client = Groq(api_key=os.getenv("GROQ_API_KEY", ""))
+load_dotenv()
+
+client = Groq(api_key=os.getenv("GROQ_API_KEY", "").strip())
 
 def transcribe_audio(audio_path: str) -> str:
     """
